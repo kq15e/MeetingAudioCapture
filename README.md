@@ -45,6 +45,8 @@ MP3保存は一時M4Aを `ffmpeg -i input.m4a -ar 44100 -ab 128k output.mp3` 相
 
 完了済みの機能追加メモは [docs/feature-notes.md](docs/feature-notes.md) にまとめています。想定している録音失敗ケースと復旧挙動は [docs/error-handling.md](docs/error-handling.md) を参照してください。
 
+インシデントの重要度、初動、調査、終了条件は [docs/incident-response.md](docs/incident-response.md) にまとめています。
+
 ## テスト
 
 ```sh
@@ -52,3 +54,5 @@ CLANG_MODULE_CACHE_PATH=.build/ModuleCache swift test
 ```
 
 自動テストでは、ファイル名、経過時間、設定保存、ミキサー、M4A/WAV/MP3出力、分割保存、結合、エラー文言を確認します。実機受け入れテストは完了済みです。
+
+Issue、ブランチ、Pull Requestを使った開発手順と完了条件は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。Pull RequestではGitHub Actionsがビルドとテストを自動実行します。
