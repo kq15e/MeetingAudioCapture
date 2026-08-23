@@ -11,6 +11,15 @@
 
 The normal workflow and completion criteria live in `CONTRIBUTING.md`. Incident severity and response steps live in `docs/incident-response.md`. Treat those documents as authoritative and update them when the workflow itself changes.
 
+## Project Skills
+
+Use the project-local skills for repeatable GitHub delivery operations:
+
+- Use `$resolve-github-issue` to select or accept one queued Issue, claim it, implement the scoped change, and open a PR. This skill stops at developer verification and never merges its own PR.
+- Use `$verify-and-merge-pr` only after the developer reports the required manual verification result. This skill records the result, confirms required checks, and squash-merges an approved PR.
+
+Keep product rules, architecture, test requirements, and security constraints in this file and `CONTRIBUTING.md`; do not duplicate them inside skills. Keep deterministic build, installation, and release mechanics in `Scripts/` and GitHub Actions.
+
 ## Product and Runtime Context
 
 MeetingAudioCapture is a SwiftPM macOS menu-bar app for capturing meeting audio. It targets Apple Silicon and macOS 15 or later.
