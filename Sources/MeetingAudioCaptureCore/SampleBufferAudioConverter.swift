@@ -59,7 +59,11 @@ public final class SampleBufferAudioConverter {
         return ProcessInfo.processInfo.systemUptime
     }
 
-    private typealias RetainedAudioBufferList = (raw: UnsafeMutableRawPointer, list: UnsafeMutablePointer<AudioBufferList>)
+    private typealias RetainedAudioBufferList = (
+        raw: UnsafeMutableRawPointer,
+        list: UnsafeMutablePointer<AudioBufferList>,
+        blockBuffer: CMBlockBuffer
+    )
 
     private func retainedAudioBufferList(from sampleBuffer: CMSampleBuffer) throws -> RetainedAudioBufferList {
         var sizeNeeded = 0
@@ -96,12 +100,13 @@ public final class SampleBufferAudioConverter {
             blockBufferOut: &blockBuffer
         )
 
-        guard status == noErr else {
+        guard status == noErr, let blockBuffer else {
             raw.deallocate()
             throw RecorderError.invalidBuffer("AudioBufferListの取得に失敗しました: \(status)")
         }
 
-        return (raw, list)
+        // AudioBufferList内のmDataはCMBlockBufferが所有するため、デコード完了まで保持する。
+        return (raw, list, blockBuffer)
     }
 
     private func decode(
@@ -111,13 +116,12 @@ public final class SampleBufferAudioConverter {
         frameCount: Int
     ) throws -> [[Float]] {
         let flags = asbd.mFormatFlags
-        let isFloat = flags & kAudioFormatFlagIsFloat != 0
-        let isSignedInteger = flags & kAudioFormatFlagIsSignedInteger != 0
         let isNonInterleaved = flags & kAudioFormatFlagIsNonInterleaved != 0
         let bitsPerChannel = Int(asbd.mBitsPerChannel)
+        let bytesPerFrame = Int(asbd.mBytesPerFrame)
 
-        guard isFloat || isSignedInteger else {
-            throw RecorderError.unsupportedAudioFormat("FloatまたはSigned Integer PCM以外の入力には未対応です。")
+        guard bytesPerFrame > 0 else {
+            throw RecorderError.unsupportedAudioFormat("PCMの1フレームあたりのバイト数が0です。")
         }
 
         var decoded = Array(
@@ -126,33 +130,57 @@ public final class SampleBufferAudioConverter {
         )
 
         if isNonInterleaved {
+            let sampleDecoder = try LinearPCMSampleDecoder(
+                bitsPerChannel: bitsPerChannel,
+                bytesPerSample: bytesPerFrame,
+                formatFlags: flags
+            )
+
+            guard audioBufferList.count >= channels else {
+                throw RecorderError.invalidBuffer("非インターリーブPCMのチャンネルバッファが不足しています。")
+            }
+
             for channel in 0..<channels {
-                guard channel < audioBufferList.count,
-                      let data = audioBufferList[channel].mData else {
-                    continue
+                let buffer = audioBufferList[channel]
+                guard let data = buffer.mData else {
+                    throw RecorderError.invalidBuffer("非インターリーブPCMのデータが空です。")
                 }
+                let byteCount = Int(buffer.mDataByteSize)
+                try validateBufferSize(byteCount, frameCount: frameCount, bytesPerFrame: bytesPerFrame)
+                let bytes = UnsafeRawBufferPointer(start: data, count: byteCount)
 
                 for frame in 0..<frameCount {
-                    decoded[channel][frame] = try sample(
-                        data: data,
-                        index: frame,
-                        bitsPerChannel: bitsPerChannel,
-                        isFloat: isFloat
+                    decoded[channel][frame] = try sampleDecoder.decode(
+                        from: bytes,
+                        offset: frame * bytesPerFrame
                     )
                 }
             }
         } else {
-            guard let data = audioBufferList.first?.mData else {
+            guard bytesPerFrame % channels == 0 else {
+                throw RecorderError.unsupportedAudioFormat(
+                    "インターリーブPCMのフレーム幅をチャンネル数で分割できません。"
+                )
+            }
+            let bytesPerSample = bytesPerFrame / channels
+            let sampleDecoder = try LinearPCMSampleDecoder(
+                bitsPerChannel: bitsPerChannel,
+                bytesPerSample: bytesPerSample,
+                formatFlags: flags
+            )
+
+            guard let buffer = audioBufferList.first, let data = buffer.mData else {
                 throw RecorderError.invalidBuffer("インターリーブPCMのデータが空です。")
             }
+            let byteCount = Int(buffer.mDataByteSize)
+            try validateBufferSize(byteCount, frameCount: frameCount, bytesPerFrame: bytesPerFrame)
+            let bytes = UnsafeRawBufferPointer(start: data, count: byteCount)
 
             for frame in 0..<frameCount {
                 for channel in 0..<channels {
-                    decoded[channel][frame] = try sample(
-                        data: data,
-                        index: frame * channels + channel,
-                        bitsPerChannel: bitsPerChannel,
-                        isFloat: isFloat
+                    decoded[channel][frame] = try sampleDecoder.decode(
+                        from: bytes,
+                        offset: frame * bytesPerFrame + channel * bytesPerSample
                     )
                 }
             }
@@ -161,30 +189,16 @@ public final class SampleBufferAudioConverter {
         return decoded
     }
 
-    private func sample(
-        data: UnsafeMutableRawPointer,
-        index: Int,
-        bitsPerChannel: Int,
-        isFloat: Bool
-    ) throws -> Float {
-        if isFloat {
-            switch bitsPerChannel {
-            case 32:
-                return data.assumingMemoryBound(to: Float.self)[index]
-            case 64:
-                return Float(data.assumingMemoryBound(to: Double.self)[index])
-            default:
-                throw RecorderError.unsupportedAudioFormat("未対応のFloat PCMビット深度です: \(bitsPerChannel)")
-            }
-        }
-
-        switch bitsPerChannel {
-        case 16:
-            return Float(data.assumingMemoryBound(to: Int16.self)[index]) / Float(Int16.max)
-        case 32:
-            return Float(data.assumingMemoryBound(to: Int32.self)[index]) / Float(Int32.max)
-        default:
-            throw RecorderError.unsupportedAudioFormat("未対応のInteger PCMビット深度です: \(bitsPerChannel)")
+    private func validateBufferSize(
+        _ byteCount: Int,
+        frameCount: Int,
+        bytesPerFrame: Int
+    ) throws {
+        let (requiredBytes, didOverflow) = frameCount.multipliedReportingOverflow(by: bytesPerFrame)
+        guard !didOverflow, byteCount >= requiredBytes else {
+            throw RecorderError.invalidBuffer(
+                "PCMバッファのサイズが不足しています: \(byteCount) / \(didOverflow ? -1 : requiredBytes) bytes"
+            )
         }
     }
 }

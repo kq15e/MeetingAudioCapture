@@ -47,6 +47,8 @@ MP3保存は一時M4Aを `ffmpeg -i input.m4a -ar 44100 -ab 128k output.mp3` 相
 
 インシデントの重要度、初動、調査、終了条件は [docs/incident-response.md](docs/incident-response.md) にまとめています。
 
+24-bit Integer PCM入力で録音が停止する問題の原因、対応内容、残る実機確認は [docs/investigation-24bit-integer-pcm-error.md](docs/investigation-24bit-integer-pcm-error.md) を参照してください。
+
 ## テスト
 
 ```sh
