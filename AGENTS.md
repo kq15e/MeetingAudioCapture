@@ -68,6 +68,8 @@ For normal development and incident fixes:
 
 Direct commits and force pushes to `main` are exceptions and require explicit user authorization. When authorized, use `--force-with-lease`, verify the remote head immediately before pushing, and never include unrelated working-tree files.
 
+Releases are tag-driven and intended for personal use. Update both version fields in `Resources/Info.plist` through a normal PR, merge it, and confirm `main` CI before creating a matching `v<major>.<minor>.<patch>` tag. Pushing the tag runs `.github/workflows/release.yml`; do not manually recreate or move a published tag. Release artifacts are ad-hoc signed and are not Developer ID signed or notarized.
+
 ## Incident Workflow
 
 - Classify impact using `docs/incident-response.md`: S1 for broad recording failure/data loss, S2 for major failure in specific environments, and S3 for recoverable or minor defects.

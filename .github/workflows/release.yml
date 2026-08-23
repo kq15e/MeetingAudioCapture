@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Package and release
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Test
+        env:
+          CLANG_MODULE_CACHE_PATH: .build/ModuleCache
+        run: swift test
+
+      - name: Package release
+        run: Scripts/package-release.sh "$GITHUB_REF_NAME"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          ARCHIVE=".build/release/MeetingAudioCapture-${RELEASE_TAG}-macos-arm64.zip"
+          CHECKSUM="${ARCHIVE}.sha256"
+
+          gh release create "$RELEASE_TAG" "$ARCHIVE" "$CHECKSUM" \
+            --verify-tag \
+            --title "MeetingAudioCapture ${RELEASE_TAG}" \
+            --generate-notes \
+            --notes "Apple Silicon / macOS 15以降向けの個人利用ビルドです。アドホック署名のため、初回起動時にGatekeeperの確認が必要になる場合があります。アプリバージョン: ${VERSION}"
