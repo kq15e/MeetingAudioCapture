@@ -53,11 +53,12 @@ struct TimelineAudioMixerTests {
     @Test
     func lateChunkAlreadyPastCursorIsIgnored() throws {
         let mixer = TimelineAudioMixer(outputSampleRate: 48_000, latencySeconds: 0)
+        let firstSamples = Array(repeating: Float(0.1), count: 256)
         let first = try AudioChunk(
             source: .system,
             startTimeSeconds: 0,
             sampleRate: 48_000,
-            channels: [[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]]
+            channels: [firstSamples, firstSamples]
         )
         let late = try AudioChunk(
             source: .microphone,
@@ -70,7 +71,8 @@ struct TimelineAudioMixerTests {
         _ = mixer.append(late)
         let finalOutput = mixer.finish()
 
-        expectSamples(firstOutput.first?.interleavedSamples ?? [], [0.1, 0.1, 0.2, 0.2, 0.3, 0.3])
+        let expectedFirstOutput = Array(repeating: [Float(0.1), Float(0.1)], count: 256).flatMap { $0 }
+        expectSamples(firstOutput.first?.interleavedSamples ?? [], expectedFirstOutput)
         #expect(finalOutput.isEmpty)
     }
 
@@ -84,7 +86,8 @@ struct TimelineAudioMixerTests {
             channels: [[0.1, 0.2], [0.1, 0.2]]
         )
 
-        let firstOutput = firstMixer.append(first)
+        _ = firstMixer.append(first)
+        let firstOutput = firstMixer.finish()
         expectSamples(firstOutput.first?.interleavedSamples ?? [], [0.1, 0.1, 0.2, 0.2])
 
         let resumedMixer = TimelineAudioMixer(outputSampleRate: 10, latencySeconds: 0, maxSilentGapSeconds: 5)
@@ -95,7 +98,8 @@ struct TimelineAudioMixerTests {
             channels: [[0.3, 0.4]]
         )
 
-        let resumedOutput = resumedMixer.append(afterPause)
+        _ = resumedMixer.append(afterPause)
+        let resumedOutput = resumedMixer.finish()
         expectSamples(resumedOutput.first?.interleavedSamples ?? [], [0.3, 0.3, 0.4, 0.4])
     }
 
