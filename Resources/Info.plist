@@ -6,6 +6,8 @@
     <string>ja</string>
     <key>CFBundleExecutable</key>
     <string>MeetingAudioCapture</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>app.codex.meeting-audio-capture</string>
     <key>CFBundleInfoDictionaryVersion</key>
