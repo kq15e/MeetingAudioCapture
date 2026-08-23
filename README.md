@@ -58,3 +58,5 @@ CLANG_MODULE_CACHE_PATH=.build/ModuleCache swift test
 自動テストでは、ファイル名、経過時間、設定保存、ミキサー、M4A/WAV/MP3出力、分割保存、結合、エラー文言を確認します。実機受け入れテストは完了済みです。
 
 Issue、ブランチ、Pull Requestを使った開発手順と完了条件は [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。Pull RequestではGitHub Actionsがビルドとテストを自動実行します。
+
+個人利用向けReleaseは、`Info.plist`と一致する`v*`タグをpushするとGitHub Actionsがテスト、パッケージ、ZIP・SHA-256生成、GitHub Release公開まで自動実行します。

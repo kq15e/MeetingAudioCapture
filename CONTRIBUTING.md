@@ -71,6 +71,36 @@ gh pr checks
 gh auth login -h github.com
 ```
 
+## リリース
+
+個人利用向けリリースは、Developer ID署名・Apple公証を行わず、アドホック署名で作成する。新しいバージョンを公開する場合は、通常のPull Requestで`Resources/Info.plist`の`CFBundleShortVersionString`と`CFBundleVersion`を更新し、`main`へマージしてCI成功を確認する。
+
+その後、`Info.plist`と同じバージョンのタグを作成してpushする。
+
+```sh
+git switch main
+git pull --ff-only
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+`v*`タグをpushすると`.github/workflows/release.yml`が次を実行する。
+
+1. Swiftテスト
+2. タグと`Info.plist`のバージョン一致確認
+3. release buildとアドホック署名
+4. arm64バイナリと署名の検証
+5. ZIPとSHA-256ファイルの生成
+6. GitHub Releaseの作成と成果物の添付
+
+タグ形式は`v<major>.<minor>.<patch>`に限定する。不一致や検証失敗時はReleaseを公開しない。既存タグの付け直しやforce pushは行わず、誤ったタグは削除前に影響を確認する。
+
+同じ成果物をGitHubへ公開せずローカルで生成する場合は、次を実行する。
+
+```sh
+Scripts/package-release.sh v0.1.1
+```
+
 ## インシデント対応
 
 録音不能、データ損失、権限ループなどの運用障害は、通常の不具合Issueより先に重要度と影響を評価する。詳しい手順は[インシデント対応ガイド](docs/incident-response.md)を参照する。
