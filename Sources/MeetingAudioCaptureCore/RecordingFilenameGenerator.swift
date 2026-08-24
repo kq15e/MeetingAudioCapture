@@ -22,6 +22,15 @@ public struct RecordingFilenameGenerator: Sendable {
     }
 
     public func fileName(segmentIndex: Int) -> String {
+        let normalizedExtension = fileExtension.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return sessionDirectoryName
+            + "_"
+            + String(format: "part%03d", max(1, segmentIndex))
+            + "."
+            + normalizedExtension
+    }
+
+    public var sessionDirectoryName: String {
         var components = [
             "MeetingAudioCapture",
             timestamp,
@@ -32,9 +41,7 @@ public struct RecordingFilenameGenerator: Sendable {
             components.append(title)
         }
 
-        components.append(String(format: "part%03d", max(1, segmentIndex)))
-        let normalizedExtension = fileExtension.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return components.joined(separator: "_") + "." + normalizedExtension
+        return components.joined(separator: "_")
     }
 
     public static func sanitizedTitle(_ title: String?) -> String? {

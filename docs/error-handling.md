@@ -27,7 +27,7 @@ This document lists the error cases that MeetingAudioCapture intentionally class
 | Invalid audio buffer | `invalidBuffer` | Malformed or inconsistent audio buffer | Stop/fail with audio processing guidance | Covered by unit tests around buffer validation |
 | Writer not started | `writerNotStarted` | Audio is ready but the writer is unexpectedly missing | Fail and suggest changing save location/retrying | Mostly defensive; should not occur in normal UI flow |
 | MP3 encoder unavailable | `mp3EncoderUnavailable` | MP3 is selected but `ffmpeg` is not installed in a known Homebrew/system path | Stop/fail at segment close, keep recoverable temporary M4A if conversion had started, suggest installing ffmpeg or choosing M4A/WAV | Select MP3 on a Mac without `ffmpeg`, record a short clip, then stop |
-| MP3 encoding failure | `mp3EncodingFailed` | External encoder exits non-zero or cannot launch | Stop/fail, keep completed files, preserve temporary M4A where possible, show encoder diagnostic | Temporarily replace encoder with a failing test binary or inspect real encoder failure logs |
+| MP3 encoding failure | `mp3EncodingFailed` | External encoder exits non-zero or cannot launch | Stop/fail, keep completed files, preserve temporary M4A in the session `parts/` directory where possible, show encoder diagnostic | Temporarily replace encoder with a failing test binary or inspect real encoder failure logs |
 | Segment merge failure | `segmentMergeFailed` | Post-recording merge fails after segments were saved | Keep original segment files, show a merge error, and leave the recorder usable | Enable merge, then make the merge path fail and confirm `partNNN` files remain |
 | Stop failure | `stopFailed` | `SCStream.stopCapture` returns an error | Enter failed state, keep any completed files, allow clear/retry | Hard to force manually; inspect if stop shows an error |
 
@@ -42,7 +42,7 @@ These are not all `RecorderError` cases, but they are part of the expected debug
 | TCC permission loop after rebuild | Use `/Applications/MeetingAudioCapture.app`, reset TCC if needed, then re-grant permissions | Run `Scripts/install-app.sh`, then reset `Microphone` / `ScreenCapture` for the bundle ID |
 | Old app bundle still running | Latest code may not be active; install script attempts to quit old/new app before copying | Check that only `MeetingAudioCapture.app` is running |
 | MP3 conversion is slower than direct formats | MP3 uses a temporary M4A plus ffmpeg conversion; M4A/WAV remain the safest formats for long recordings | Record a short MP3 clip first, then confirm longer recordings in the target environment |
-| Segment merge cleanup | When merge succeeds, `_merged` remains and source `partNNN` files are removed. When merge fails, source files remain | Enable merge with short segments and confirm success/deletion; inject failure and confirm originals remain |
+| Segment merge retention | The merged file is written at the session root. Source `partNNN` files remain in `parts/` on both success and failure | Enable merge with short segments and confirm the merged file and all original parts remain; inject failure and confirm originals remain |
 
 ## Out Of Scope For Current Handling
 

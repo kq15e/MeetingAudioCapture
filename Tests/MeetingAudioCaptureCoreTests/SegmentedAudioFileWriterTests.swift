@@ -38,6 +38,8 @@ struct SegmentedAudioFileWriterTests {
         #expect(writer.completedFileURLs.count == 3)
         for fileURL in writer.completedFileURLs {
             #expect(FileManager.default.fileExists(atPath: fileURL.path))
+            #expect(fileURL.deletingLastPathComponent().lastPathComponent == "parts")
+            #expect(fileURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() == directory)
         }
     }
 
@@ -69,6 +71,7 @@ struct SegmentedAudioFileWriterTests {
         #expect(writer.completedFileURLs.count == 1)
         let fileURL = try #require(writer.completedFileURLs.first)
         #expect(fileURL.pathExtension == "wav")
+        #expect(fileURL.deletingLastPathComponent().lastPathComponent == "parts")
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
 
         let file = try AVAudioFile(forReading: fileURL)
@@ -106,6 +109,7 @@ struct SegmentedAudioFileWriterTests {
         #expect(writer.completedFileURLs.count == 1)
         let fileURL = try #require(writer.completedFileURLs.first)
         #expect(fileURL.pathExtension == "mp3")
+        #expect(fileURL.deletingLastPathComponent().lastPathComponent == "parts")
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
         #expect(FileManager.default.fileExists(atPath: fileURL.deletingPathExtension().appendingPathExtension("tmp.m4a").path) == false)
     }
@@ -139,6 +143,35 @@ struct SegmentedAudioFileWriterTests {
             try writer.close()
         }
         #expect(writer.completedFileURLs.isEmpty)
+        let sessionDirectory = try #require(writer.sessionDirectoryURL)
+        let recoveryFiles = try FileManager.default.contentsOfDirectory(
+            at: sessionDirectory.appendingPathComponent("parts", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+        #expect(recoveryFiles.count == 1)
+        #expect(recoveryFiles[0].lastPathComponent.hasSuffix("tmp.m4a"))
+    }
+
+    @Test
+    func sameRecordingNameCreatesUniqueSessionDirectories() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("MeetingAudioCaptureTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = RecordingSettings(outputDirectory: directory)
+        let startedAt = Date(timeIntervalSince1970: 0)
+
+        let first = SegmentedAudioFileWriter(settings: settings, mode: .inPerson, startedAt: startedAt)
+        let second = SegmentedAudioFileWriter(settings: settings, mode: .inPerson, startedAt: startedAt)
+        let buffer = StereoPCMBuffer(sampleRate: 48_000, interleavedSamples: [0.1, 0.1])
+        try first.write(buffer)
+        try first.close()
+        try second.write(buffer)
+        try second.close()
+
+        let firstDirectory = try #require(first.sessionDirectoryURL)
+        let secondDirectory = try #require(second.sessionDirectoryURL)
+        #expect(firstDirectory != secondDirectory)
+        #expect(secondDirectory.lastPathComponent.hasSuffix("_002"))
     }
 
     private struct InspectingMP3Encoder: MP3Encoding {

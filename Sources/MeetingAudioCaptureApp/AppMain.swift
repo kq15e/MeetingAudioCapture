@@ -516,6 +516,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let latest = latestFiles.last else {
             return
         }
+        if latest.hasDirectoryPath {
+            NSWorkspace.shared.open(latest)
+            return
+        }
         NSWorkspace.shared.activateFileViewerSelecting([latest])
     }
 

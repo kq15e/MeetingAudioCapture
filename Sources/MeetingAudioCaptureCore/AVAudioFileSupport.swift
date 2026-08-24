@@ -67,6 +67,7 @@ extension StereoPCMBuffer {
 
 public final class SegmentedAudioFileWriter {
     public private(set) var completedFileURLs: [URL] = []
+    public private(set) var sessionDirectoryURL: URL?
 
     private let outputDirectory: URL
     private let sampleRate: Double
@@ -159,10 +160,10 @@ public final class SegmentedAudioFileWriter {
     }
 
     private func startNextSegment() throws {
-        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let partsDirectory = try prepareSessionDirectoriesIfNeeded()
 
         let fileName = filenameGenerator.fileName(segmentIndex: segmentIndex)
-        let finalURL = outputDirectory.appendingPathComponent(fileName)
+        let finalURL = partsDirectory.appendingPathComponent(fileName)
         let writeURL = outputFormat.writesViaIntermediateM4A
             ? finalURL.deletingPathExtension().appendingPathExtension("tmp.m4a")
             : finalURL
@@ -182,6 +183,42 @@ public final class SegmentedAudioFileWriter {
         currentFinalURL = finalURL
         currentSegmentFrames = 0
         segmentIndex += 1
+    }
+
+    private func prepareSessionDirectoriesIfNeeded() throws -> URL {
+        if let sessionDirectoryURL {
+            return sessionDirectoryURL.appendingPathComponent("parts", isDirectory: true)
+        }
+
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let baseName = filenameGenerator.sessionDirectoryName
+
+        for index in 1...9_999 {
+            let directoryName = index == 1 ? baseName : baseName + String(format: "_%03d", index)
+            let candidate = outputDirectory.appendingPathComponent(directoryName, isDirectory: true)
+            guard !fileManager.fileExists(atPath: candidate.path) else {
+                continue
+            }
+
+            do {
+                // Claim the session name atomically before creating children so simultaneous starts cannot share it.
+                try fileManager.createDirectory(at: candidate, withIntermediateDirectories: false)
+                let partsDirectory = candidate.appendingPathComponent("parts", isDirectory: true)
+                do {
+                    try fileManager.createDirectory(at: partsDirectory, withIntermediateDirectories: false)
+                } catch {
+                    try? fileManager.removeItem(at: candidate)
+                    throw error
+                }
+                sessionDirectoryURL = candidate
+                return partsDirectory
+            } catch CocoaError.fileWriteFileExists {
+                // A simultaneous recording may claim the same name between the existence check and creation.
+                continue
+            }
+        }
+
+        throw RecorderError.fileWriteFailed("一意な録音セッションフォルダを作成できませんでした。")
     }
 
     private func closeCurrentSegment() throws {

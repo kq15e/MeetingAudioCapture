@@ -8,11 +8,12 @@ struct AudioSegmentMergerTests {
     @Test
     func mergedOutputURLReplacesPartSuffix() {
         let merger = AudioSegmentMerger()
-        let segmentURL = URL(fileURLWithPath: "/tmp/MeetingAudioCapture_1970_online-meeting_part001.m4a")
+        let segmentURL = URL(fileURLWithPath: "/tmp/session/parts/MeetingAudioCapture_1970_online-meeting_part001.m4a")
 
         let mergedURL = merger.mergedOutputURL(for: segmentURL)
 
         #expect(mergedURL.lastPathComponent == "MeetingAudioCapture_1970_online-meeting_merged.m4a")
+        #expect(mergedURL.deletingLastPathComponent().path == "/tmp/session")
     }
 
     @Test
@@ -87,6 +88,46 @@ struct AudioSegmentMergerTests {
         #expect(try String(contentsOf: outputURL, encoding: .utf8) == "onetwo")
         #expect(FileManager.default.fileExists(atPath: first.path) == false)
         #expect(FileManager.default.fileExists(atPath: second.path) == false)
+    }
+
+    @Test
+    func mergeKeepsPartsByDefault() async throws {
+        let sessionDirectory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: sessionDirectory) }
+        let partsDirectory = sessionDirectory.appendingPathComponent("parts", isDirectory: true)
+        try FileManager.default.createDirectory(at: partsDirectory, withIntermediateDirectories: true)
+        let first = partsDirectory.appendingPathComponent("meeting_part001.mp3")
+        let second = partsDirectory.appendingPathComponent("meeting_part002.mp3")
+        try Data("one".utf8).write(to: first)
+        try Data("two".utf8).write(to: second)
+        let merger = AudioSegmentMerger(mp3Merger: ConcatenatingMP3Merger())
+
+        let mergedURL = try await merger.merge(segments: [first, second], outputFormat: .mp3)
+
+        #expect(mergedURL?.deletingLastPathComponent() == sessionDirectory)
+        #expect(FileManager.default.fileExists(atPath: first.path))
+        #expect(FileManager.default.fileExists(atPath: second.path))
+    }
+
+    @Test
+    func repeatedMergeDoesNotOverwriteExistingResult() async throws {
+        let sessionDirectory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: sessionDirectory) }
+        let partsDirectory = sessionDirectory.appendingPathComponent("parts", isDirectory: true)
+        try FileManager.default.createDirectory(at: partsDirectory, withIntermediateDirectories: true)
+        let first = partsDirectory.appendingPathComponent("meeting_part001.mp3")
+        let second = partsDirectory.appendingPathComponent("meeting_part002.mp3")
+        try Data("one".utf8).write(to: first)
+        try Data("two".utf8).write(to: second)
+        let merger = AudioSegmentMerger(mp3Merger: ConcatenatingMP3Merger())
+
+        let firstResult = try #require(try await merger.merge(segments: [first, second], outputFormat: .mp3))
+        let secondResult = try #require(try await merger.merge(segments: [first, second], outputFormat: .mp3))
+
+        #expect(firstResult.lastPathComponent == "meeting_merged.mp3")
+        #expect(secondResult.lastPathComponent == "meeting_merged_002.mp3")
+        #expect(FileManager.default.fileExists(atPath: firstResult.path))
+        #expect(FileManager.default.fileExists(atPath: secondResult.path))
     }
 
     @Test
