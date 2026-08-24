@@ -27,9 +27,18 @@ public enum RecordingMode: String, CaseIterable, Sendable {
     }
 }
 
-public enum AudioSourceKind: String, Sendable {
+public enum AudioSourceKind: String, Hashable, Sendable {
     case system
     case microphone
+
+    public var displayName: String {
+        switch self {
+        case .system:
+            return "システム音声"
+        case .microphone:
+            return "マイク"
+        }
+    }
 }
 
 public enum AudioOutputFormat: String, CaseIterable, Sendable {
@@ -107,6 +116,7 @@ public struct MicrophoneDevice: Identifiable, Equatable, Sendable {
 
 public enum RecorderState: Equatable, Sendable {
     case idle
+    case diagnosing(mode: RecordingMode, startedAt: Date)
     case recording(mode: RecordingMode, startedAt: Date)
     case paused(mode: RecordingMode, startedAt: Date, pausedAt: Date)
     case stopping
