@@ -30,6 +30,7 @@ This document lists the error cases that MeetingAudioCapture intentionally class
 | MP3 encoder unavailable | `mp3EncoderUnavailable` | MP3 is selected but `ffmpeg` is not installed in a known Homebrew/system path | Stop/fail at segment close, keep recoverable temporary M4A if conversion had started, suggest installing ffmpeg or choosing M4A/WAV | Select MP3 on a Mac without `ffmpeg`, record a short clip, then stop |
 | MP3 encoding failure | `mp3EncodingFailed` | External encoder exits non-zero or cannot launch | Stop/fail, keep completed files, preserve temporary M4A in the session `parts/` directory where possible, show encoder diagnostic | Temporarily replace encoder with a failing test binary or inspect real encoder failure logs |
 | Segment merge failure | `segmentMergeFailed` | Post-recording merge fails after segments were saved | Keep original segment files, show a merge error, and leave the recorder usable | Enable merge, then make the merge path fail and confirm `partNNN` files remain |
+| Saved segment validation failure | `SavedAudioSegmentMergeError` | Selected folder has one part, mixed formats/names, duplicate numbers, or incompatible WAV metadata | Explain why no merge was started and leave every source file unchanged | Select prepared invalid `parts/` folders for each validation case |
 | Stop failure | `stopFailed` | `SCStream.stopCapture` returns an error | Enter failed state, keep any completed files, allow clear/retry | Hard to force manually; inspect if stop shows an error |
 
 ## Related Operational Cases
