@@ -7,6 +7,7 @@ import Foundation
 public final class MeetingRecordingEngine: NSObject {
     public var onStateChange: ((RecorderState) -> Void)?
     public var onError: ((RecorderError) -> Void)?
+    public var onInputWarnings: (([InputAudioDiagnosticWarning]) -> Void)?
     public var onFinished: (([URL]) -> Void)?
 
     private let captureQueue = DispatchQueue(label: "app.meeting-audio-capture.capture")
@@ -25,6 +26,8 @@ public final class MeetingRecordingEngine: NSObject {
     private var stream: SCStream?
     private var captureSession: AVCaptureSession?
     private var activeMode: RecordingMode?
+    private var inputDiagnostics: InputAudioDiagnostics?
+    private var diagnosticWorkItem: DispatchWorkItem?
     private var isPaused = false
     private var isHandlingFailure = false
 
@@ -63,8 +66,10 @@ public final class MeetingRecordingEngine: NSObject {
             self.writer = writer
             self.mixer = mixer
             self.activeMode = mode
+            self.inputDiagnostics = InputAudioDiagnostics(mode: mode)
             self.isPaused = false
         }
+        state = .diagnosing(mode: mode, startedAt: startedAt)
 
         do {
             switch mode {
@@ -73,7 +78,7 @@ public final class MeetingRecordingEngine: NSObject {
             case .inPerson:
                 try await startMicrophoneOnlyCapture(microphoneDeviceID: microphoneDeviceID)
             }
-            state = .recording(mode: mode, startedAt: startedAt)
+            scheduleDiagnosticCompletion(mode: mode, startedAt: startedAt)
         } catch {
             let recorderError = RecorderError.classified(error, fallback: RecorderError.screenCaptureFailed)
             await cleanupAfterFailedStart()
@@ -153,6 +158,28 @@ public final class MeetingRecordingEngine: NSObject {
                 flushPendingAudio: false
             )
         }
+    }
+
+    private func scheduleDiagnosticCompletion(mode: RecordingMode, startedAt: Date) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, var diagnostics = self.inputDiagnostics else {
+                return
+            }
+
+            let warnings = diagnostics.finish()
+            self.inputDiagnostics = diagnostics
+            self.diagnosticWorkItem = nil
+
+            guard case .diagnosing = self.state else {
+                return
+            }
+            self.state = .recording(mode: mode, startedAt: startedAt)
+            if !warnings.isEmpty {
+                self.onInputWarnings?(warnings)
+            }
+        }
+        diagnosticWorkItem = workItem
+        captureQueue.asyncAfter(deadline: .now() + InputAudioDiagnostics.durationSeconds, execute: workItem)
     }
 
     public func resume() async {
@@ -292,6 +319,9 @@ public final class MeetingRecordingEngine: NSObject {
             self.writer = nil
             self.mixer = nil
             self.activeMode = nil
+            self.diagnosticWorkItem?.cancel()
+            self.diagnosticWorkItem = nil
+            self.inputDiagnostics = nil
             self.isPaused = false
             self.isHandlingFailure = false
         }
@@ -342,6 +372,9 @@ public final class MeetingRecordingEngine: NSObject {
             self.stream = nil
             self.captureSession = nil
             self.activeMode = nil
+            self.diagnosticWorkItem?.cancel()
+            self.diagnosticWorkItem = nil
+            self.inputDiagnostics = nil
             self.isPaused = false
             return (urls, closeError)
         }
@@ -373,11 +406,15 @@ public final class MeetingRecordingEngine: NSObject {
             chunk = try converter.chunk(from: sampleBuffer, source: source)
         } catch {
             handleRuntimeFailure(
-                RecorderError.classified(error, fallback: RecorderError.audioConversionFailed),
+                .audioConversionFailed(
+                    "対象入力: \(source.displayName)\n入力形式: \(audioFormatSummary(for: sampleBuffer))\n\(error.recorderDiagnosticMessage)"
+                ),
                 flushPendingAudio: true
             )
             return
         }
+
+        inputDiagnostics?.observe(chunk)
 
         let outputs = mixer?.append(chunk) ?? []
         for output in outputs {
@@ -396,6 +433,15 @@ public final class MeetingRecordingEngine: NSObject {
                 return
             }
         }
+    }
+
+    private func audioFormatSummary(for sampleBuffer: CMSampleBuffer) -> String {
+        guard let description = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let pointer = CMAudioFormatDescriptionGetStreamBasicDescription(description) else {
+            return "取得不能"
+        }
+        let format = pointer.pointee
+        return "formatID=\(format.mFormatID), sampleRate=\(format.mSampleRate), channels=\(format.mChannelsPerFrame), bits=\(format.mBitsPerChannel), flags=0x\(String(format.mFormatFlags, radix: 16))"
     }
 
     private func handleRuntimeFailure(_ error: RecorderError, flushPendingAudio: Bool) {
