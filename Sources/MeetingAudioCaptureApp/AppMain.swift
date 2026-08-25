@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let outputDirectoryStore = OutputDirectoryStore()
     private let audioOutputFormatStore = AudioOutputFormatStore()
     private let segmentMergePreferenceStore = SegmentMergePreferenceStore()
+    private let savedSegmentMerger = SavedAudioSegmentMerger()
 
     private var selectedMode: RecordingMode = .onlineMeeting
     private var selectedMicrophoneID: String?
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mergeSegmentsAfterRecording = false
     private var recordingTitle = ""
     private var statusRefreshTimer: Timer?
+    private var isMergingSavedSegments = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
@@ -163,6 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusTitle() {
+        if isMergingSavedSegments {
+            setStatusTitle("結合中")
+            return
+        }
         switch recorderState {
         case .diagnosing:
             setStatusTitle("確認中")
@@ -216,7 +222,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
 
         let startStopTitle = isRecording ? "録音停止" : (isFailed ? "再試行" : "録音開始")
-        menu.addItem(NSMenuItem(title: startStopTitle, action: #selector(toggleRecording), keyEquivalent: "r"))
+        let startStopItem = NSMenuItem(title: startStopTitle, action: #selector(toggleRecording), keyEquivalent: "r")
+        startStopItem.isEnabled = !isMergingSavedSegments
+        menu.addItem(startStopItem)
         if canTogglePause {
             let pauseTitle = isPaused ? "録音再開" : "一時停止"
             menu.addItem(NSMenuItem(title: pauseTitle, action: #selector(togglePause), keyEquivalent: "p"))
@@ -232,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let item = NSMenuItem(title: mode.displayName, action: #selector(selectMode(_:)), keyEquivalent: "")
             item.representedObject = mode.rawValue
             item.state = selectedMode == mode ? .on : .off
-            item.isEnabled = !isRecording
+            item.isEnabled = !isBusy
             modeMenu.addItem(item)
         }
         modeMenuItem.submenu = modeMenu
@@ -244,7 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let item = NSMenuItem(title: device.name, action: #selector(selectMicrophone(_:)), keyEquivalent: "")
             item.representedObject = device.id
             item.state = selectedMicrophoneID == device.id ? .on : .off
-            item.isEnabled = !isRecording
+            item.isEnabled = !isBusy
             microphoneMenu.addItem(item)
         }
         microphoneMenuItem.submenu = microphoneMenu
@@ -256,12 +264,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(titleSummary)
 
         let setTitleItem = NSMenuItem(title: "録音タイトルを設定...", action: #selector(setRecordingTitle), keyEquivalent: "t")
-        setTitleItem.isEnabled = !isRecording
+        setTitleItem.isEnabled = !isBusy
         menu.addItem(setTitleItem)
 
         if RecordingFilenameGenerator.sanitizedTitle(recordingTitle) != nil {
             let clearTitleItem = NSMenuItem(title: "録音タイトルをクリア", action: #selector(clearRecordingTitle), keyEquivalent: "")
-            clearTitleItem.isEnabled = !isRecording
+            clearTitleItem.isEnabled = !isBusy
             menu.addItem(clearTitleItem)
         }
 
@@ -272,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(outputDirectorySummary)
 
         let selectOutputDirectoryItem = NSMenuItem(title: "保存先を選択...", action: #selector(selectOutputDirectory), keyEquivalent: "s")
-        selectOutputDirectoryItem.isEnabled = !isRecording
+        selectOutputDirectoryItem.isEnabled = !isBusy
         menu.addItem(selectOutputDirectoryItem)
 
         menu.addItem(NSMenuItem(title: "保存先を開く", action: #selector(openOutputDirectory), keyEquivalent: "o"))
@@ -283,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let item = NSMenuItem(title: outputFormat.displayName, action: #selector(selectOutputFormat(_:)), keyEquivalent: "")
             item.representedObject = outputFormat.rawValue
             item.state = selectedOutputFormat == outputFormat ? .on : .off
-            item.isEnabled = !isRecording
+            item.isEnabled = !isBusy
             outputFormatMenu.addItem(item)
         }
         outputFormatMenuItem.submenu = outputFormatMenu
@@ -291,8 +299,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let mergeSegmentsItem = NSMenuItem(title: "停止後に分割ファイルを結合", action: #selector(toggleSegmentMergePreference), keyEquivalent: "")
         mergeSegmentsItem.state = mergeSegmentsAfterRecording ? .on : .off
-        mergeSegmentsItem.isEnabled = !isRecording
+        mergeSegmentsItem.isEnabled = !isBusy
         menu.addItem(mergeSegmentsItem)
+
+        let mergeSavedSegmentsItem = NSMenuItem(
+            title: isMergingSavedSegments ? "分割ファイルを結合中..." : "分割ファイルを結合...",
+            action: #selector(mergeSavedSegments),
+            keyEquivalent: ""
+        )
+        mergeSavedSegmentsItem.isEnabled = !isBusy
+        menu.addItem(mergeSavedSegmentsItem)
 
         let hint = NSMenuItem(title: "ASR品質重視ならイヤホン推奨", action: nil, keyEquivalent: "")
         hint.isEnabled = false
@@ -342,6 +358,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    private var isBusy: Bool {
+        isRecording || isMergingSavedSegments
+    }
+
     private var canTogglePause: Bool {
         switch recorderState {
         case .recording, .paused:
@@ -363,6 +383,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var statusText: String {
+        if isMergingSavedSegments {
+            return "保存済み分割ファイルを結合中..."
+        }
         switch recorderState {
         case .idle:
             return "待機中: \(selectedMode.displayName)"
@@ -389,6 +412,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleRecording() {
+        guard !isMergingSavedSegments else {
+            return
+        }
         if isRecording {
             Task {
                 await engine.stop()
@@ -473,6 +499,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mergeSegmentsAfterRecording.toggle()
         segmentMergePreferenceStore.saveMergeSegmentsAfterRecording(mergeSegmentsAfterRecording)
         rebuildMenu()
+    }
+
+    @objc private func mergeSavedSegments() {
+        guard !isBusy else {
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "分割録音ファイルを結合"
+        panel.message = "セッションフォルダまたはpartsフォルダを選択してください。"
+        panel.prompt = "選択"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = selectedOutputDirectory
+
+        guard panel.runModal() == .OK, let selectedDirectory = panel.url else {
+            return
+        }
+
+        let plan: SavedAudioSegmentMergePlan
+        do {
+            plan = try savedSegmentMerger.makePlan(selectedDirectory: selectedDirectory)
+        } catch {
+            showAlert(title: "分割ファイルを結合できません", message: error.localizedDescription)
+            return
+        }
+
+        if !plan.missingSegmentIndices.isEmpty {
+            let missing = plan.missingSegmentIndices.map { String(format: "part%03d", $0) }.joined(separator: ", ")
+            guard confirmMerge(
+                title: "分割番号に欠けがあります",
+                message: "見つからない分割: \(missing)\n見つかったファイルだけを番号順に結合しますか？"
+            ) else {
+                return
+            }
+        }
+
+        if !plan.existingMergedFiles.isEmpty {
+            let names = plan.existingMergedFiles.map(\.lastPathComponent).joined(separator: "\n")
+            guard confirmMerge(
+                title: "結合済みファイルがあります",
+                message: "既存ファイルは上書きせず、番号付きの別ファイルを作成します。\n\n\(names)"
+            ) else {
+                return
+            }
+        }
+
+        isMergingSavedSegments = true
+        updateStatusTitle()
+        rebuildMenu()
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let outputURL = try await Task.detached(priority: .userInitiated) {
+                    try await SavedAudioSegmentMerger().merge(plan)
+                }.value
+                self.latestFiles = [outputURL]
+                self.showAlert(
+                    title: "分割ファイルを結合しました",
+                    message: outputURL.lastPathComponent
+                )
+            } catch {
+                self.showAlert(title: "分割ファイルを結合できません", message: error.localizedDescription)
+            }
+            self.isMergingSavedSegments = false
+            self.updateStatusTitle()
+            self.rebuildMenu()
+        }
+    }
+
+    private func confirmMerge(title: String, message: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "続行")
+        alert.addButton(withTitle: "キャンセル")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     @objc private func setRecordingTitle() {
