@@ -101,7 +101,10 @@ struct SavedAudioSegmentMergerTests {
 
         let output = try await merger.merge(plan)
 
-        #expect(output.deletingLastPathComponent() == session)
+        #expect(
+            output.deletingLastPathComponent().resolvingSymlinksInPath()
+                == session.resolvingSymlinksInPath()
+        )
         #expect(output.lastPathComponent == "meeting_merged.wav")
         #expect(FileManager.default.fileExists(atPath: first.path))
         #expect(FileManager.default.fileExists(atPath: second.path))
