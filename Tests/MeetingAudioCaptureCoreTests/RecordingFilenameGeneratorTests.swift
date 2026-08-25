@@ -17,6 +17,7 @@ struct RecordingFilenameGeneratorTests {
         let fileName = generator.fileName(segmentIndex: 1)
 
         #expect(fileName == "MeetingAudioCapture_1970-01-01_00-00-00_online-meeting_part001.m4a")
+        #expect(generator.sessionDirectoryName == "MeetingAudioCapture_1970-01-01_00-00-00_online-meeting")
     }
 
     @Test
@@ -31,6 +32,7 @@ struct RecordingFilenameGeneratorTests {
         let fileName = generator.fileName(segmentIndex: 12)
 
         #expect(fileName == "MeetingAudioCapture_1970-01-01_00-00-00_in-person_週次定例_part012.m4a")
+        #expect(generator.sessionDirectoryName == "MeetingAudioCapture_1970-01-01_00-00-00_in-person_週次定例")
     }
 
     @Test

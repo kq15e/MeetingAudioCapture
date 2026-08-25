@@ -102,7 +102,7 @@ public final class MeetingRecordingEngine: NSObject {
         await stopMicrophoneOnlyCapture()
 
         let result = await closeRecording(flushPendingAudio: true)
-        var files = result.files
+        var presentedURLs = result.sessionDirectory.map { [$0] } ?? result.files
         let finalError = stopError ?? result.error
 
         if let finalError {
@@ -110,14 +110,16 @@ public final class MeetingRecordingEngine: NSObject {
             onError?(finalError)
         } else {
             do {
-                files = try await mergeSegmentsIfNeeded(files)
+                if let mergedURL = try await mergeSegmentsIfNeeded(result.files) {
+                    presentedURLs = [mergedURL]
+                }
             } catch {
                 onError?(RecorderError.classified(error, fallback: RecorderError.segmentMergeFailed))
             }
             state = .idle
         }
 
-        onFinished?(files)
+        onFinished?(presentedURLs)
     }
 
     public func pause() async {
@@ -327,29 +329,27 @@ public final class MeetingRecordingEngine: NSObject {
         }
     }
 
-    private func mergeSegmentsIfNeeded(_ files: [URL]) async throws -> [URL] {
+    private func mergeSegmentsIfNeeded(_ files: [URL]) async throws -> URL? {
         guard settings.mergeSegmentsAfterRecording else {
-            return files
+            return nil
         }
 
-        guard let mergedURL = try await segmentMerger.merge(
+        return try await segmentMerger.merge(
             segments: files,
-            outputFormat: settings.outputFormat,
-            deletesSourceSegmentsOnSuccess: true
-        ) else {
-            return files
-        }
-        return [mergedURL]
+            outputFormat: settings.outputFormat
+        )
     }
 
-    private func closeRecording(flushPendingAudio: Bool) async -> (files: [URL], error: RecorderError?) {
+    private func closeRecording(
+        flushPendingAudio: Bool
+    ) async -> (files: [URL], sessionDirectory: URL?, error: RecorderError?) {
         await captureQueueAsync {
             var closeError: RecorderError?
 
             if flushPendingAudio, let outputs = self.mixer?.finish() {
                 guard let writer = self.writer else {
                     closeError = .writerNotStarted
-                    return ([], closeError)
+                    return ([], self.writer?.sessionDirectoryURL, closeError)
                 }
 
                 for output in outputs {
@@ -367,6 +367,7 @@ public final class MeetingRecordingEngine: NSObject {
                 closeError = closeError ?? RecorderError.classified(error, fallback: RecorderError.fileWriteFailed)
             }
             let urls = self.writer?.completedFileURLs ?? []
+            let sessionDirectory = self.writer?.sessionDirectoryURL
             self.writer = nil
             self.mixer = nil
             self.stream = nil
@@ -376,7 +377,7 @@ public final class MeetingRecordingEngine: NSObject {
             self.diagnosticWorkItem = nil
             self.inputDiagnostics = nil
             self.isPaused = false
-            return (urls, closeError)
+            return (urls, sessionDirectory, closeError)
         }
     }
 
@@ -475,7 +476,9 @@ public final class MeetingRecordingEngine: NSObject {
         isHandlingFailure = false
         onError?(finalError)
 
-        if !result.files.isEmpty {
+        if let sessionDirectory = result.sessionDirectory {
+            onFinished?([sessionDirectory])
+        } else if !result.files.isEmpty {
             onFinished?(result.files)
         }
     }

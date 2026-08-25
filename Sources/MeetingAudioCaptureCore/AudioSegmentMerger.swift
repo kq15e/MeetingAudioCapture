@@ -116,16 +116,20 @@ struct AudioSegmentMerger {
             return nil
         }
 
-        let destinationURL = mergedOutputURL(for: segments[0])
-        try? fileManager.removeItem(at: destinationURL)
+        let destinationURL = availableOutputURL(preferredURL: mergedOutputURL(for: segments[0]))
 
-        switch outputFormat {
-        case .m4a:
-            try await mergeM4A(segments: segments, destinationURL: destinationURL)
-        case .wav:
-            try mergeWAV(segments: segments, destinationURL: destinationURL)
-        case .mp3:
-            try mp3Merger.merge(segments: segments, destinationURL: destinationURL)
+        do {
+            switch outputFormat {
+            case .m4a:
+                try await mergeM4A(segments: segments, destinationURL: destinationURL)
+            case .wav:
+                try mergeWAV(segments: segments, destinationURL: destinationURL)
+            case .mp3:
+                try mp3Merger.merge(segments: segments, destinationURL: destinationURL)
+            }
+        } catch {
+            try? fileManager.removeItem(at: destinationURL)
+            throw error
         }
 
         if deletesSourceSegmentsOnSuccess {
@@ -142,7 +146,10 @@ struct AudioSegmentMerger {
     }
 
     func mergedOutputURL(for firstSegmentURL: URL) -> URL {
-        let directory = firstSegmentURL.deletingLastPathComponent()
+        let partsDirectory = firstSegmentURL.deletingLastPathComponent()
+        let directory = partsDirectory.lastPathComponent == "parts"
+            ? partsDirectory.deletingLastPathComponent()
+            : partsDirectory
         let fileExtension = firstSegmentURL.pathExtension
         let baseName = firstSegmentURL.deletingPathExtension().lastPathComponent
         let mergedBaseName = baseName.replacingOccurrences(
@@ -152,6 +159,27 @@ struct AudioSegmentMerger {
         )
         let finalBaseName = mergedBaseName == baseName ? baseName + "_merged" : mergedBaseName
         return directory.appendingPathComponent(finalBaseName).appendingPathExtension(fileExtension)
+    }
+
+    private func availableOutputURL(preferredURL: URL) -> URL {
+        guard fileManager.fileExists(atPath: preferredURL.path) else {
+            return preferredURL
+        }
+
+        let directory = preferredURL.deletingLastPathComponent()
+        let fileExtension = preferredURL.pathExtension
+        let baseName = preferredURL.deletingPathExtension().lastPathComponent
+        for index in 2...9_999 {
+            let candidate = directory
+                .appendingPathComponent(baseName + String(format: "_%03d", index))
+                .appendingPathExtension(fileExtension)
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return directory
+            .appendingPathComponent(baseName + "_\(UUID().uuidString)")
+            .appendingPathExtension(fileExtension)
     }
 
     private func mergeM4A(segments: [URL], destinationURL: URL) async throws {
