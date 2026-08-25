@@ -142,6 +142,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        engine.onInputWarnings = { [weak self] warnings in
+            DispatchQueue.main.async {
+                self?.showAlert(
+                    title: "入力音声を確認してください",
+                    message: warnings.map(\.message).joined(separator: "\n\n")
+                )
+            }
+        }
+
         engine.onFinished = { [weak self] files in
             DispatchQueue.main.async {
                 self?.latestFiles = files
@@ -155,6 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusTitle() {
         switch recorderState {
+        case .diagnosing:
+            setStatusTitle("確認中")
         case .recording(_, let startedAt):
             let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt)
             setStatusTitle("REC \(elapsed)")
@@ -309,6 +320,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var isRecording: Bool {
+        if case .diagnosing = recorderState {
+            return true
+        }
         if case .recording = recorderState {
             return true
         }
@@ -332,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch recorderState {
         case .recording, .paused:
             return true
-        case .idle, .stopping, .failed:
+        case .idle, .diagnosing, .stopping, .failed:
             return false
         }
     }
@@ -352,6 +366,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch recorderState {
         case .idle:
             return "待機中: \(selectedMode.displayName)"
+        case .diagnosing(let mode, _):
+            return "入力確認中: \(mode.displayName)"
         case .recording(let mode, let startedAt):
             let formatter = DateFormatter()
             formatter.timeStyle = .medium
@@ -411,7 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 await engine.resume()
             }
-        case .idle, .stopping, .failed:
+        case .idle, .diagnosing, .stopping, .failed:
             break
         }
     }
